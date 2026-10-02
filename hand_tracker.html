@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediaPipe Hands - Gesture & Motion Tracker</title>
+
+  <!-- MediaPipe Hands & Camera Utils CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #090d16;
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow-x: hidden;
+    }
+
+    .container {
+      position: relative;
+      width: 100%;
+      max-width: 960px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding: 0 4px;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: #f8fafc;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8125rem;
+      color: #94a3b8;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #ef4444;
+      transition: background-color 0.3s;
+    }
+
+    .status-dot.active {
+      background-color: #10b981;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+    }
+
+    .video-viewport {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #020617;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.8);
+    }
+
+    /* Video feed (hidden as source, drawn onto canvas for mirroring and smooth overlays) */
+    #webcam-video {
+      display: none;
+    }
+
+    #output-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* Mirror camera for natural interaction */
+    }
+
+    /* Overlay HUD */
+    .hud-overlay {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .metric-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      padding: 10px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .metric-label {
+      font-size: 0.6875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    .metric-value {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: #ffffff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .value-fist {
+      color: #f59e0b;
+    }
+
+    .value-open {
+      color: #10b981;
+    }
+
+    .value-left {
+      color: #38bdf8;
+    }
+
+    .value-right {
+      color: #a855f7;
+    }
+
+    .controls-bar {
+      margin-top: 16px;
+      display: flex;
+      gap: 12px;
+      width: 100%;
+      justify-content: center;
+    }
+
+    button {
+      background: #f8fafc;
+      color: #0f172a;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      background: #e2e8f0;
+      transform: translateY(-1px);
+    }
+
+    .console-hint {
+      margin-top: 14px;
+      font-size: 0.75rem;
+      color: #64748b;
+      text-align: center;
+    }
+
+    .console-hint code {
+      font-family: monospace;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <h1>MediaPipe Hands Recognition</h1>
+      <div class="status-badge">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Camera Idle</span>
+      </div>
+    </header>
+
+    <div class="video-viewport">
+      <video id="webcam-video" playsinline></video>
+      <canvas id="output-canvas"></canvas>
+
+      <div class="hud-overlay">
+        <div class="metric-card">
+          <span class="metric-label">Hand State</span>
+          <span class="metric-value" id="hud-state">Detecting...</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">Hand Movement</span>
+          <span class="metric-value" id="hud-direction">Stationary</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <button id="toggle-camera-btn">Start Webcam</button>
+    </div>
+
+    <p class="console-hint">
+      Check your browser DevTools Console (<code>F12</code> or <code>Cmd+Option+I</code>) to see real-time output.
+    </p>
+  </div>
+
+  <script>
+    const videoElement = document.getElementById('webcam-video');
+    const canvasElement = document.getElementById('output-canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const hudState = document.getElementById('hud-state');
+    const hudDirection = document.getElementById('hud-direction');
+    const toggleBtn = document.getElementById('toggle-camera-btn');
+
+    let camera = null;
+    let isCameraRunning = false;
+
+    // Movement tracking state
+    let prevHandCenterX = null;
+    let prevTimestamp = 0;
+    let smoothedVelocityX = 0;
+
+    // Throttle console output to prevent flooding while keeping continuous updates
+    let lastLogTime = 0;
+    const LOG_INTERVAL_MS = 250;
+
+    /**
+     * Calculates Euclidean distance between two 3D landmarks
+     */
+    function distance(p1, p2) {
+      const dx = p1.x - p2.x;
+      const dy = p1.y - p2.y;
+      const dz = (p1.z || 0) - (p2.z || 0);
+      return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * Determines whether the hand is open or closed (fist)
+     * Landmarks reference:
+     * 0: Wrist
+     * 5, 6, 7, 8: Index (MCP, PIP, DIP, TIP)
+     * 9, 10, 11, 12: Middle
+     * 13, 14, 15, 16: Ring
+     * 17, 18, 19, 20: Pinky
+     * 1, 2, 3, 4: Thumb
+     */
+    function classifyHandState(landmarks) {
+      const wrist = landmarks[0];
+
+      // Finger tip vs PIP distances to wrist
+      const indexTipDist = distance(landmarks[8], wrist);
+      const indexPipDist = distance(landmarks[6], wrist);
+
+      const middleTipDist = distance(landmarks[12], wrist);
+      const middlePipDist = distance(landmarks[10], wrist);
+
+      const ringTipDist = distance(landmarks[16], wrist);
+      const ringPipDist = distance(landmarks[14], wrist);
+
+      const pinkyTipDist = distance(landmarks[20], wrist);
+      const pinkyPipDist = distance(landmarks[18], wrist);
+
+      // A finger is extended when tip is farther from wrist than PIP joint
+      const isIndexExtended = indexTipDist > indexPipDist * 1.12;
+      const isMiddleExtended = middleTipDist > middlePipDist * 1.12;
+      const isRingExtended = ringTipDist > ringPipDist * 1.12;
+      const isPinkyExtended = pinkyTipDist > pinkyPipDist * 1.12;
+
+      // Thumb tip distance to pinky knuckle (landmarks[17])
+      const thumbDistToPinky = distance(landmarks[4], landmarks[17]);
+      const thumbJointDistToPinky = distance(landmarks[2], landmarks[17]);
+      const isThumbExtended = thumbDistToPinky > thumbJointDistToPinky * 1.15;
+
+      const extendedCount = [
+        isIndexExtended,
+        isMiddleExtended,
+        isRingExtended,
+        isPinkyExtended,
+        isThumbExtended
+      ].filter(Boolean).length;
+
+      // Closed fist: none or at most 1 finger extended (and 4 main fingers curled)
+      if (extendedCount <= 1 || (!isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended)) {
+        return "Closed (Fist)";
+      } else if (extendedCount >= 4) {
+        return "Open";
+      } else {
+        return "Partially Open";
+      }
+    }
+
+    /**
+     * Determines whether the hand is moving left, moving right, or stationary
+     * Using average X of palm center (wrist + MCP knuckles)
+     */
+    function detectHandMovement(landmarks, timestamp) {
+      // Calculate palm center X
+      const currentCenterX = (
+        landmarks[0].x +
+        landmarks[5].x +
+        landmarks[9].x +
+        landmarks[13].x +
+        landmarks[17].x
+      ) / 5;
+
+      let direction = "Stationary";
+
+      if (prevHandCenterX !== null && prevTimestamp > 0) {
+        const dt = (timestamp - prevTimestamp) / 1000; // in seconds
+        if (dt > 0.005) {
+          // Delta in normalized coordinates (0 = left of raw video, 1 = right of raw video)
+          // Since the canvas is mirrored horizontally via scaleX(-1), raw x increasing means moving left on user screen
+          // We normalize so that:
+          // Moving user-right on mirrored screen = "Moving Right"
+          // Moving user-left on mirrored screen = "Moving Left"
+          const rawDeltaX = currentCenterX - prevHandCenterX;
+          const userDeltaX = -rawDeltaX; // Invert for mirrored display
+          const rawVelocity = userDeltaX / dt;
+
+          // Lowpass filter for smooth velocity estimate
+          smoothedVelocityX = 0.65 * smoothedVelocityX + 0.35 * rawVelocity;
+
+          const MOVEMENT_THRESHOLD = 0.18; // Normalized units per second
+          if (smoothedVelocityX > MOVEMENT_THRESHOLD) {
+            direction = "Moving Right";
+          } else if (smoothedVelocityX < -MOVEMENT_THRESHOLD) {
+            direction = "Moving Left";
+          } else {
+            direction = "Stationary";
+          }
+        }
+      }
+
+      prevHandCenterX = currentCenterX;
+      prevTimestamp = timestamp;
+
+      return direction;
+    }
+
+    /**
+     * MediaPipe Hands onResults callback
+     */
+    function onResults(results) {
+      // Ensure canvas matches video aspect ratio
+      canvasElement.width = videoElement.videoWidth || 1280;
+      canvasElement.height = videoElement.videoHeight || 720;
+
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // Draw the video frame onto the canvas
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      const now = performance.now();
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        // Track the primary detected hand
+        const landmarks = results.multiHandLandmarks[0];
+
+        // 1. Draw hand landmarks and connecting skeleton
+        for (const handLandmarks of results.multiHandLandmarks) {
+          drawConnectors(canvasCtx, handLandmarks, HAND_CONNECTIONS, {
+            color: '#10b981',
+            lineWidth: 4
+          });
+          drawLandmarks(canvasCtx, handLandmarks, {
+            color: '#38bdf8',
+            fillColor: '#0284c7',
+            lineWidth: 2,
+            radius: 4
+          });
+        }
+
+        // 2. Classify hand open or closed (fist)
+        const handState = classifyHandState(landmarks);
+
+        // 3. Detect moving left or right
+        const handMovement = detectHandMovement(landmarks, now);
+
+        // 4. Update HUD
+        hudState.textContent = handState;
+        hudState.className = 'metric-value ' + (handState === 'Closed (Fist)' ? 'value-fist' : 'value-open');
+
+        hudDirection.textContent = handMovement;
+        hudDirection.className = 'metric-value ' + (
+          handMovement === 'Moving Right' ? 'value-right' :
+          handMovement === 'Moving Left' ? 'value-left' : ''
+        );
+
+        // 5. Output these values in the console as required
+        if (now - lastLogTime >= LOG_INTERVAL_MS) {
+          lastLogTime = now;
+          console.log(`[Hand Tracker] State: ${handState} | Movement: ${handMovement}`);
+        }
+      } else {
+        hudState.textContent = "No Hand Detected";
+        hudState.className = "metric-value";
+        hudDirection.textContent = "Stationary";
+        hudDirection.className = "metric-value";
+        prevHandCenterX = null;
+        smoothedVelocityX = 0;
+      }
+
+      canvasCtx.restore();
+    }
+
+    // Initialize MediaPipe Hands
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+
+    hands.onResults(onResults);
+
+    // Camera control
+    async function startCamera() {
+      try {
+        statusText.textContent = "Initializing camera & model...";
+        camera = new Camera(videoElement, {
+          onFrame: async () => {
+            await hands.send({ image: videoElement });
+          },
+          width: 1280,
+          height: 720
+        });
+
+        await camera.start();
+        isCameraRunning = true;
+        statusDot.classList.add('active');
+        statusText.textContent = "Camera Active";
+        toggleBtn.textContent = "Stop Webcam";
+        console.log("[System] MediaPipe Hands running. Tracking hand gestures and movement.");
+      } catch (err) {
+        console.error("Camera access error:", err);
+        statusText.textContent = "Camera Access Denied or Unavailable";
+      }
+    }
+
+    function stopCamera() {
+      if (camera) {
+        camera.stop();
+        camera = null;
+      }
+      isCameraRunning = false;
+      statusDot.classList.remove('active');
+      statusText.textContent = "Camera Stopped";
+      toggleBtn.textContent = "Start Webcam";
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      console.log("[System] Camera stopped.");
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      if (isCameraRunning) {
+        stopCamera();
+      } else {
+        startCamera();
+      }
+    });
+
+    // Auto-start camera when page loads
+    window.addEventListener('DOMContentLoaded', () => {
+      startCamera();
+    });
+  </script>
+</body>
+</html>

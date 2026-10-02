@@ -1,0 +1,8 @@
+{
+  "name": "Coastal Crash - 3D Physics Simulation",
+  "description": "A full-screen realistic 3D simulation with Three.js and Cannon-es featuring a car driving along a coastal highway, falling obstacle, and dynamic physics crash.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
